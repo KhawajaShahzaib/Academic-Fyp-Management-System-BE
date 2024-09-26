@@ -1,0 +1,35 @@
+# Ignore compiled files
+*.pyc
+*.pyo
+__pycache__/
+
+# Ignore environment variables
+.env
+
+# Ignore database files
+db.sqlite3
+
+# Ignore migration files
+*.log
+*.pot
+*.pyc
+*.pyo
+*.db
+
+
+# Ignore media files and static files (if generated dynamically)
+media/
+static/
+
+# Ignore virtual environment folder
+djangoenv/
+xauth/
+
+# Ignore IDE/project files
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# Ignore macOS files
+.DS_Store
