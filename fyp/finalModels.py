@@ -1,6 +1,6 @@
 from django.db import models
 from django.conf import settings
-from xauth.models import Student,  Department, Faculty, Degree
+from xauth.models import Student, User, Department, Faculty, Degree
 
 from django.core.exceptions import ValidationError
 # Semester Model
@@ -12,56 +12,21 @@ class Semester(models.Model):
 
     def __str__(self):
         return self.semester_name
+    
 
 # Course Model
 class Course(models.Model):
     course_id = models.AutoField(primary_key=True)
     course_code = models.CharField(max_length=10)
     course_name = models.CharField(max_length=100)
-    degree = models.ForeignKey(Degree, on_delete=models.CASCADE, default=1)
-    semester = models.ForeignKey(Semester, on_delete=models.CASCADE, default=1)
+    degree = models.ForeignKey(Degree, on_delete=models.CASCADE)
+    semester = models.ForeignKey(Semester, on_delete=models.CASCADE)
     credits = models.PositiveIntegerField(default=3)
     students = models.ManyToManyField(Student)
 
     def __str__(self):
         return f"{self.course_code} - {self.course_name}"
     
-    #################################
-    def save(self, *args, **kwargs):
-        # Call the original save() method
-        super().save(*args, **kwargs)
-
-        # Check if the course name includes "Final Year Project"
-        if "final year project" in self.course_name.lower():
-            # Define the default assessments
-            default_assessments = [
-                {"name": "Attendance", "description": "Evaluation of initial proposal", "weightage": 10},
-                {"name": "Proposal Defense", "description": "Evaluation of initial proposal", "weightage": 20},
-                {"name": "Mid Term Evaluation", "description": "Mid-point progress review", "weightage": 30},
-                {"name": "Final Evaluation", "description": "Comprehensive final review", "weightage": 40},
-            ]
-
-            # Create the assessments for this course if they don't exist already
-            if not Assessment.objects.filter(course=self).exists():
-                for assessment_data in default_assessments:
-                    Assessment.objects.create(
-                        name=assessment_data["name"],
-                        course=self,
-                        description=assessment_data["description"],
-                        weightage=assessment_data["weightage"],
-                        created_by=Faculty.objects.first()
-                    )
-    
-class CLO(models.Model):
-    clo_id = models.AutoField(primary_key=True)
-    title = models.CharField(max_length=100)  # Adding a short title
-    description = models.TextField()
-    clo_number = models.PositiveIntegerField()
-    course = models.ForeignKey(Course,  on_delete=models.SET_NULL, null=True)
-    def __str__(self):
-        return self.description
-    
-
 # Project Group Model with Group Size Validation
 # Role Model (No change here)
 class Role(models.Model):
@@ -84,24 +49,25 @@ class FacultyDepartmentRole(models.Model):
         unique_together = ('faculty', 'department', 'role')  # Ensures unique role assignment per department
 
 
+
+
+class CLO(models.Model):
+    clo_id = models.AutoField(primary_key=True)
+    title = models.CharField(max_length=100)  # Adding a short title
+    description = models.TextField()
+    clo_number = models.PositiveIntegerField()
+    course = models.ForeignKey(Course,  on_delete=models.SET_NULL, null=True)
+    def __str__(self):
+        return self.description
+    
 class FypManager(models.Model):
     id = models.AutoField(primary_key=True)
     course =  models.ManyToManyField(Course, blank=True)
-    # user = models.OneToOneField(Faculty, on_delete=models.CASCADE, null=True, blank=True)
-    user = models.ForeignKey(Faculty, on_delete=models.SET_NULL, null=True, blank=True)
+    user = models.OneToOneField(Faculty, on_delete=models.CASCADE, null=True, blank=True)
     group_limit = models.PositiveIntegerField(blank=True, null=True, default=3)
     group_size = models.PositiveIntegerField(blank=True, null=True, default=3)
 
-class SecondSupervisor(models.Model):
-    name = models.CharField(max_length=100, blank=True)
-    email = models.EmailField(blank=True, null=True)
-    supervisor_type = models.BooleanField(default=True) #True = Co Supervisor
-    organization = models.CharField(max_length=200, blank=True, null=True)
-    specialities = models.ManyToManyField('Speciality', related_name="external_supervisors", blank=True)
-    is_approved = models.BooleanField(default=False)  # Approval flag
 
-    def __str__(self):
-        return f"{self.name} ({self.organization})"
  
 class Group(models.Model):
     group_id = models.AutoField(primary_key=True)
@@ -109,9 +75,11 @@ class Group(models.Model):
     course = models.ForeignKey(Course, on_delete=models.CASCADE)
     supervisor = models.ForeignKey(Faculty, on_delete=models.CASCADE, blank=True, null=True)
     created_by = models.ForeignKey(Student, on_delete=models.CASCADE)
-    # second_supervisor = models.ForeignKey(Faculty, on_delete=models.SET_NULL, blank=True, null=True, related_name='co_supervisor')  # Optional Co-Supervisor
-    second_supervisor = models.ForeignKey(SecondSupervisor, on_delete=models.SET_NULL, null=True, blank=True)  # Optional External Supervisor
 
+    # def save(self, *args, **kwargs):
+    #     super().save(*args, **kwargs)  # Save the Group first
+    #     # Automatically add the creator as a member of the group
+    #     GroupMembership.objects.create(group=self, student=self.created_by)
     def save(self, *args, **kwargs):
         super().save(*args, **kwargs)  # Save the Group first
         # Check if the creator is already a member of the group
@@ -162,15 +130,8 @@ class Supervisor(models.Model):
     def __str__(self):
         return self.user.user.username
 
-class FYPIdea(models.Model):
-    title = models.CharField(max_length=200)
-    description = models.TextField()
-    supervisor = models.ForeignKey(Supervisor, on_delete=models.SET_NULL, null=True)
-    domain = models.CharField(max_length=100)
-    preferred_degree = models.CharField(max_length=100)  # Adjust as needed
 
-    def __str__(self):
-        return self.title
+    
 
 class SupervisionRequest(models.Model):
     group = models.ForeignKey(Group, on_delete=models.CASCADE, related_name='supervision_requests')
@@ -208,6 +169,81 @@ class GroupMeeting(models.Model):
         return f"Meeting for {self.group.project_title} on {self.date} at {self.time}"
 
 
+class PanelMember(models.Model):
+    name = models.OneToOneField(Faculty, on_delete=models.CASCADE)
+    expertise = models.ManyToManyField(Speciality, related_name="panelmembers", blank=True)
+
+    def _str_(self):
+        return self.name.user.username
+
+class PanelInvitation(models.Model):
+    panel_member = models.ForeignKey(PanelMember, on_delete=models.CASCADE)
+    presentation = models.ForeignKey('Presentation', on_delete=models.CASCADE)
+    accepted = models.BooleanField(default=False)
+    sender = models.ForeignKey(FypManager, on_delete=models.SET_NULL, null=True, blank=True)
+
+class Assessment(models.Model):
+    assessment_id = models.AutoField(primary_key=True)
+    name = models.CharField(max_length=100)
+    is_done = models.BooleanField(default=False)
+    description = models.TextField(blank=True)
+    presentation_required = models.BooleanField(default=False)
+    weightage = models.FloatField(default=0.0)  # Weightage percentage
+    course = models.ForeignKey(Course, on_delete=models.CASCADE) #Linked to semester
+    clos = models.ManyToManyField(CLO, blank=True)
+    created_by = models.ForeignKey(Faculty, on_delete=models.CASCADE)
+
+
+
+    def __str__(self):
+        return self.name
+
+
+class AssessmentCriteria(models.Model): #Create for each assessment
+    criteria_id = models.AutoField(primary_key=True)
+    assessment = models.ForeignKey(Assessment, related_name='criteria', on_delete=models.CASCADE)
+    criteria = models.CharField(max_length=100)
+  
+    max_score = models.FloatField(default=0.0)  # Max score for this criterion
+    clo_link = models.ForeignKey(CLO, on_delete=models.SET_NULL, null=True)  # Link to CLO, see below
+
+    def __str__(self):
+        return f"{self.assessment.name} - {self.name}"
+ 
+class GroupMarks(models.Model):
+    group = models.ForeignKey(Group, on_delete=models.CASCADE)  # The group being evaluated
+    rubric = models.ForeignKey(AssessmentCriteria, on_delete=models.CASCADE)  # The specific criterion
+    panel_member = models.ForeignKey(PanelMember, on_delete=models.CASCADE)  # Panel member giving marks
+    marks_awarded = models.FloatField()  # The marks given for that criterion
+
+
+
+#For Attendance Tracking
+class Attendance(models.Model):
+    meeting = models.ForeignKey(GroupMeeting, on_delete=models.CASCADE, related_name='attendances')
+    assessment = models.ForeignKey(Assessment, on_delete=models.SET_NULL, null=True, blank=True)  # Link to assessment if applicable
+
+    is_present = models.BooleanField(default=False)  # Indicates if the student was present
+
+    # class Meta:
+    #     unique_together = ('meeting', 'student')  # Ensures a student can only have one attendance entry per meeting
+
+    def __str__(self):
+        return f"{self.meeting.group.project_title} on {self.meeting.date}"
+
+
+
+class FYPIdea(models.Model):
+    title = models.CharField(max_length=200)
+    description = models.TextField()
+    supervisor = models.ForeignKey(Supervisor, on_delete=models.SET_NULL, null=True)
+    domain = models.CharField(max_length=100)
+    preferred_degree = models.CharField(max_length=100)  # Adjust as needed
+
+    def __str__(self):
+        return self.title
+    
+
 class Submission(models.Model):
     title = models.CharField(max_length=200)
     description = models.TextField()
@@ -221,90 +257,14 @@ class Submission(models.Model):
         return self.title
     
 
-class Assessment(models.Model):
-    assessment_id = models.AutoField(primary_key=True)
-    name = models.CharField(max_length=100)
-    is_done = models.BooleanField(default=False)
-    description = models.TextField(blank=True)
-    presentation_required = models.BooleanField(default=False)
-    weightage = models.FloatField(default=0.0)  # Weightage percentage
-    course = models.ForeignKey(Course, on_delete=models.CASCADE) #Linked to semester
-    clos = models.ManyToManyField(CLO, blank=True) 
-    created_by = models.ForeignKey(Faculty, on_delete=models.CASCADE, default=1)
-    def clean(self):
-        # Calculate total weightage of all assessments for this course
-        current_assessments = Assessment.objects.filter(course=self.course).exclude(assessment_id=self.assessment_id)
-        total_weightage = sum(assessment.weightage for assessment in current_assessments)
-        total_weightage += self.weightage  # Include the current assessment
-
-        if total_weightage > 100:
-            raise ValidationError(f"Total weightage for all assessments exceeds 100%. It is {total_weightage}%.")
-
-    def save(self, *args, **kwargs):
-        # Call the clean method before saving
-        self.clean()
-        super().save(*args, **kwargs)
-
-
-
-    def __str__(self):
-        return self.name
-
-
-class AssessmentCriteria(models.Model): #Create for each assessment
-    criteria_id = models.AutoField(primary_key=True)
-    assessment = models.ForeignKey(Assessment, related_name='criteria', on_delete=models.CASCADE)
-    criteria = models.CharField(max_length=100)
-    max_score = models.FloatField(default=0.0)  # Max score for this criterion
-    clo_link = models.ForeignKey(CLO, on_delete=models.SET_NULL, null=True)  # Link to CLO, see below
-
-    def __str__(self):
-        return f"{self.assessment.name} - {self.criteria}"
-
- 
- #For Attendance Tracking
-
-class Attendance(models.Model):
-    meeting = models.ForeignKey(GroupMeeting, on_delete=models.CASCADE, related_name='attendances')
-    assessment = models.ForeignKey(Assessment, on_delete=models.SET_NULL, null=True, blank=True)  # Link to assessment if applicable
-
-    is_present = models.BooleanField(default=False)  # Indicates if the student was present
-
-    def __str__(self):
-        return f"{self.meeting.group.project_title} on {self.meeting.date}"
-
-
-class PanelMember(models.Model):
-    name = models.OneToOneField(Faculty, on_delete=models.CASCADE)
-    expertise = models.ManyToManyField(Speciality, related_name="panelmembers", blank=True)
-
-    def _str_(self):
-        return self.name.user.username
-
-class PanelInvitation(models.Model):
-    panel_member = models.ForeignKey(PanelMember, on_delete=models.CASCADE)
-    presentation = models.ForeignKey('Presentation', on_delete=models.CASCADE)
-    course = models.ForeignKey(Course, on_delete=models.CASCADE, default=1)
-    accepted = models.BooleanField(default=False)
-    sender = models.ForeignKey(FypManager, on_delete=models.SET_NULL, null=True, blank=True)
-    created_at = models.DateTimeField(auto_now_add=True, null=True)  # Allow null temporarily
-
-
-class GroupMarks(models.Model):
-    group = models.ForeignKey(Group, on_delete=models.CASCADE)  # The group being evaluated
-    rubric = models.ForeignKey(AssessmentCriteria, on_delete=models.CASCADE)  # The specific criterion
-    panel_member = models.ForeignKey(PanelMember, on_delete=models.CASCADE)  # Panel member giving marks
-    marks_awarded = models.FloatField()  # The marks given for that criterion
-    
-
 class Presentation(models.Model):
     scheduled_time = models.DateTimeField()
-    assessment = models.ForeignKey(Assessment, on_delete=models.CASCADE)  # Link to assessment if applicable
+    assessment = models.ForeignKey(Assessment, on_delete=models.SET_NULL)  # Link to assessment if applicable
     course = models.ForeignKey(Course, on_delete=models.CASCADE)
     student_group = models.ForeignKey(Group, on_delete=models.CASCADE)
     # student_group = models.CharField(max_length=100)
     room_no = models.CharField(max_length=10)
-    created_by = models.ForeignKey(FypManager, on_delete=models.CASCADE)
+    created_by = models.ForeignKey(FypManager, on_delete=models.SET_NULL)
     # panel_members = models.ForeignKey(FacultyDepartmentRole, on_delete=models.CASCADE)
 
     # panel_members = models.ManyToManyField('Facultys', blank=True)
@@ -312,21 +272,3 @@ class Presentation(models.Model):
     def str(self):
         return self.title
  
-
-class Timetable(models.Model):
-    course = models.ForeignKey(Course, on_delete=models.CASCADE) 
-    file = models.FileField(upload_to="file")    
-
-    def str(self):
-        return self.file.name
-    
-
-class TimetableEntry(models.Model):
-    teacher = models.CharField(max_length=100)
-    room = models.CharField(max_length=50)
-    day = models.CharField(max_length=10)  # e.g., 'Monday'
-    time = models.TimeField()
-    # endtime = models.TimeField()
-
-    def str(self):
-        return self.teacher
