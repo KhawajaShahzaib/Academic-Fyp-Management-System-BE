@@ -3,7 +3,12 @@ from .models import Role, FacultyDepartmentRole, Semester, Course, CLO, Assessme
 from .models import  Group, GroupInvitation, GroupMembership
 from .models import SupervisionRequest, Supervisor, Speciality, GroupMeeting, FYPIdea, Attendance
 
-from .models import PanelInvitation, PanelMember, Presentation, Submission, SecondSupervisor, GroupMarks, FypManager
+from .models import PanelInvitation, PanelMember, Presentation, Submission, SecondSupervisor, GroupMarks, FypManager, Room
+
+@admin.register(Room)
+class RoomAdmin(admin.ModelAdmin):
+    list_display = ('name',)
+    search_fields = ('name',)
 class AttendanceAdmin(admin.ModelAdmin):
     list_display = ('meeting', 'is_present', 'assessment')
     list_filter = ('meeting', 'is_present')
@@ -58,7 +63,7 @@ class SemesterAdmin(admin.ModelAdmin):
 
 @admin.register(Course)
 class CourseAdmin(admin.ModelAdmin):
-    list_display = ('course_id', 'course_code', 'course_name', 'degree', 'semester', 'credits')
+    list_display = ('course_id', 'course_code', 'course_name', 'degree', 'semester', 'section_name', 'credits')
     list_filter = ('degree', 'semester')
     search_fields = ('course_code', 'course_name')
     filter_horizontal = ('students',)  # This will give you a horizontal filter box to add/remove students
@@ -179,13 +184,19 @@ class PanelInvitationAdmin(admin.ModelAdmin):
 
 @admin.register(GroupMarks)
 class GroupMarksAdmin(admin.ModelAdmin):
-    list_display = ('group', 'rubric', 'panel_member', 'marks_awarded')
+    list_display = ('group', 'rubric', 'panel_member', 'marks')
     search_fields = ('group__project_title', 'rubric__assessment__name', 'panel_member__name__user__username')
 
 @admin.register(Presentation)
 class PresentationAdmin(admin.ModelAdmin):
-    list_display = ('scheduled_time', 'assessment', 'course', 'student_group', 'room_no')
-    search_fields = ('assessment__name', 'course__course_name', 'student_group__project_title')
+    list_display = ('scheduled_time', 'assessment', 'course', 'student_group', 'room_no', 'panel_members_display', 'feedback')
+    search_fields = ('room_no', 'course__name', 'student_group__name')
+    list_filter = ('scheduled_time', 'assessment', 'course', 'student_group')
+    ordering = ('scheduled_time', 'course', 'room_no')
+
+    def panel_members_display(self, obj):
+        return ', '.join([faculty.user.username for faculty in obj.panel_members.all()])
+    panel_members_display.short_description = 'Panel Members'
 
 class FypManagerAdmin(admin.ModelAdmin):
     list_display = ('id', 'user', 'group_limit', 'group_size')  # Display these fields in the list view
@@ -193,3 +204,27 @@ class FypManagerAdmin(admin.ModelAdmin):
     filter_horizontal = ('course',)  # Allows multi-select for courses
 
 admin.site.register(FypManager, FypManagerAdmin)
+
+from .models import Timetable, TimetableEntry
+@admin.register(Timetable)
+class TimetableAdmin(admin.ModelAdmin):
+    list_display = ('course', 'file',)  # Display columns in the admin list view
+    search_fields = ('course__name', 'file',)  # Enable search by course name and file field
+    ordering = ('course',)  # Default ordering by course
+
+@admin.register(TimetableEntry)
+class TimetableEntryAdmin(admin.ModelAdmin):
+    list_display = ('teacher', 'room', 'day', 'time',)  # Display columns in the admin list view
+    search_fields = ('teacher', 'room', 'day',)  # Enable search by teacher, room, and day
+    list_filter = ('day', 'time',)  # Filter by day and time in the admin list view
+    ordering = ('day', 'time',)  # Default ordering by day and time
+
+from .models import Timetable_json
+@admin.register(Timetable_json)
+class Timetable_jsonAdmin(admin.ModelAdmin):
+    list_display = ('id', 'uploaded_at', 'short_data')  # Display specific fields in admin list view
+    search_fields = ('id', 'uploaded_at')  # Allow search by these fields
+
+    def short_data(self, obj):
+        """ Show a preview of the JSON data in the admin list. """
+        return str(obj.data)[:100]  # Show a truncated version of the JSON data

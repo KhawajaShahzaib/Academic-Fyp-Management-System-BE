@@ -4,6 +4,11 @@ from xauth.models import Student,  Department, Faculty, Degree
 
 from django.core.exceptions import ValidationError
 # Semester Model
+class Room(models.Model):
+    name = models.CharField(max_length=100, unique=True)
+
+    def __str__(self):
+        return self.name
 class Semester(models.Model):
     semester_id = models.AutoField(primary_key=True)
     semester_name = models.CharField(max_length=50, unique=True)
@@ -12,6 +17,14 @@ class Semester(models.Model):
 
     def __str__(self):
         return self.semester_name
+
+# class DefaultCourses(models.Model):
+#     course_id = models.AutoField(primary_key=True)
+#     course_code = models.CharField(max_length=10)
+#     course_name = models.CharField(max_length=100)
+#     credits = models.PositiveIntegerField(default=3)
+
+#     degree = models.ForeignKey(Degree, on_delete=models.CASCADE, default=1)
 
 # Course Model
 class Course(models.Model):
@@ -22,6 +35,7 @@ class Course(models.Model):
     semester = models.ForeignKey(Semester, on_delete=models.CASCADE, default=1)
     credits = models.PositiveIntegerField(default=3)
     students = models.ManyToManyField(Student)
+    section_name = models.CharField(max_length=2)
 
     def __str__(self):
         return f"{self.course_code} - {self.course_name}"
@@ -35,7 +49,7 @@ class Course(models.Model):
         if "final year project" in self.course_name.lower():
             # Define the default assessments
             default_assessments = [
-                {"name": "Attendance", "description": "Evaluation of initial proposal", "weightage": 10},
+                {"name": "Attendance", "description": "Attendance of Students throught the fyp", "weightage": 10},
                 {"name": "Proposal Defense", "description": "Evaluation of initial proposal", "weightage": 20},
                 {"name": "Mid Term Evaluation", "description": "Mid-point progress review", "weightage": 30},
                 {"name": "Final Evaluation", "description": "Comprehensive final review", "weightage": 40},
@@ -122,14 +136,14 @@ class Group(models.Model):
         return f"{self.project_title}"
 
 class GroupMembership(models.Model):
-    group = models.ForeignKey(Group, on_delete=models.CASCADE, related_name='members')
+    group = models.ForeignKey(Group, on_delete=models.CASCADE, related_name='membership')
     student = models.ForeignKey(Student, on_delete=models.CASCADE)
     class Meta:
         unique_together = ('group', 'student')  # Ensures a student can only join a group once
 
     def clean(self):
         # Custom validation to ensure no group has more than 3 members
-        if self.group.members.count() >= 3:
+        if self.group.membership.count() >= 3:
             raise ValidationError(f"The group '{self.group.project_title}' already has 3 members.")
 
     def save(self, *args, **kwargs):
@@ -156,7 +170,7 @@ class Speciality(models.Model):
         return self.name
 
 class Supervisor(models.Model):
-    user = models.OneToOneField(Faculty, on_delete=models.CASCADE)
+    user = models.OneToOneField(Faculty, on_delete=models.CASCADE, related_name='supervisor_name')
     specialities = models.ManyToManyField(Speciality, related_name="supervisors", blank=True)
 
     def __str__(self):
@@ -181,31 +195,7 @@ class SupervisionRequest(models.Model):
 
     def __str__(self):
         return f"{self.group.project_title} - {self.status}"
-    
-class GroupMeeting(models.Model):
-    group = models.ForeignKey(Group, on_delete=models.CASCADE, related_name='meetings')
-    date = models.DateField()
-    time = models.TimeField()
-    status = models.CharField(max_length=20, choices=[('Upcoming', 'Upcoming'), ('Past', 'Past')])
-
-    def clean(self):
-        # Custom validation to ensure no two meetings are scheduled at the same time for the same group
-        if GroupMeeting.objects.filter(group=self.group, date=self.date, time=self.time).exists():
-            raise ValidationError(f"A meeting is already scheduled for {self.group.project_title} on {self.date} at {self.time}.")
-    
-    def save(self, *args, **kwargs):
-        # Call the clean method before saving
-        self.clean()
-        super().save(*args, **kwargs)
-
-        # Create attendance records for all students in the group
-        for membership in self.group.members.all():
-            Attendance.objects.get_or_create(meeting=self)
-
-
-
-    def __str__(self):
-        return f"Meeting for {self.group.project_title} on {self.date} at {self.time}"
+from django.shortcuts import get_object_or_404
 
 
 class Submission(models.Model):
@@ -264,6 +254,35 @@ class AssessmentCriteria(models.Model): #Create for each assessment
  
  #For Attendance Tracking
 
+class GroupMeeting(models.Model):
+    group = models.ForeignKey(Group, on_delete=models.CASCADE, related_name='meetings')
+    date = models.DateField()
+    time = models.TimeField()
+    status = models.CharField(max_length=20, choices=[('Upcoming', 'Upcoming'), ('Past', 'Past')])
+
+    def clean(self):
+        # Custom validation to ensure no two meetings are scheduled at the same time for the same group
+        if GroupMeeting.objects.filter(group=self.group, date=self.date, time=self.time).exists():
+            raise ValidationError(f"A meeting is already scheduled for {self.group.project_title} on {self.date} at {self.time}.")
+    
+    def save(self, *args, **kwargs):
+        # Call the clean method before saving
+        self.clean()
+        super().save(*args, **kwargs)
+        # Create attendance records for all students in the group
+        course = self.group.course
+        assessment = Assessment.objects.get(course=course, name='Attendance')
+        print("Assessments: ", assessment)
+
+        for membership in self.group.membership.all():
+            attendance, created = Attendance.objects.get_or_create(meeting=self)
+            if created:
+                attendance.assessment = assessment  # Assuming Attendance has a field for Assessment
+                attendance.save()
+
+
+    def __str__(self):
+        return f"Meeting for {self.group.project_title} on {self.date} at {self.time}"
 class Attendance(models.Model):
     meeting = models.ForeignKey(GroupMeeting, on_delete=models.CASCADE, related_name='attendances')
     assessment = models.ForeignKey(Assessment, on_delete=models.SET_NULL, null=True, blank=True)  # Link to assessment if applicable
@@ -272,6 +291,7 @@ class Attendance(models.Model):
 
     def __str__(self):
         return f"{self.meeting.group.project_title} on {self.meeting.date}"
+
 
 
 class PanelMember(models.Model):
@@ -289,38 +309,51 @@ class PanelInvitation(models.Model):
     sender = models.ForeignKey(FypManager, on_delete=models.SET_NULL, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True, null=True)  # Allow null temporarily
 
-
-class GroupMarks(models.Model):
-    group = models.ForeignKey(Group, on_delete=models.CASCADE)  # The group being evaluated
-    rubric = models.ForeignKey(AssessmentCriteria, on_delete=models.CASCADE)  # The specific criterion
-    panel_member = models.ForeignKey(PanelMember, on_delete=models.CASCADE)  # Panel member giving marks
-    marks_awarded = models.FloatField()  # The marks given for that criterion
-    
-
 class Presentation(models.Model):
+    id = models.AutoField(primary_key=True)  # Explicitly set id as the primary key
     scheduled_time = models.DateTimeField()
     assessment = models.ForeignKey(Assessment, on_delete=models.CASCADE)  # Link to assessment if applicable
     course = models.ForeignKey(Course, on_delete=models.CASCADE)
     student_group = models.ForeignKey(Group, on_delete=models.CASCADE)
-    # student_group = models.CharField(max_length=100)
     room_no = models.CharField(max_length=10)
-    created_by = models.ForeignKey(FypManager, on_delete=models.CASCADE)
-    # panel_members = models.ForeignKey(FacultyDepartmentRole, on_delete=models.CASCADE)
+    panel_members = models.ManyToManyField(Faculty, blank=True)
+    feedback = models.TextField(blank=True, null=True)  # Feedback field, initially empty
 
-    # panel_members = models.ManyToManyField('Facultys', blank=True)
+    def __str__(self):
+        return f"{self.assessment} - {self.scheduled_time}"
 
-    def str(self):
-        return self.title
+    def clean(self):
+        super().clean()
+        for member in self.panel_members.all():
+            conflicts = Presentation.objects.filter(
+                panel_members=member,
+                scheduled_time=self.scheduled_time
+            ).exclude(id=self.id)  # Exclude the current presentation if updating
+            if conflicts.exists():
+                raise ValidationError(
+                    f"Panel member {member} is already assigned to another presentation at {self.scheduled_time}."
+                )
  
+
+class GroupMarks(models.Model):
+    course = models.ForeignKey(Course, on_delete=models.CASCADE)
+    rubric = models.ForeignKey(AssessmentCriteria, on_delete=models.CASCADE)  # The specific criterion
+    group = models.ForeignKey(Group, on_delete=models.CASCADE)  # The group being evaluated
+    student = models.ForeignKey(Student, on_delete=models.CASCADE)
+    panel_member = models.ForeignKey(Faculty, on_delete=models.CASCADE)  # Panel member giving marks
+    marks = models.FloatField()  # The marks given for that criterion
+    
 
 class Timetable(models.Model):
     course = models.ForeignKey(Course, on_delete=models.CASCADE) 
-    file = models.FileField(upload_to="file")    
+    file = models.FileField(upload_to="timetables/")    
 
     def str(self):
         return self.file.name
     
-
+class Timetable_json(models.Model):
+    data = models.JSONField()  # To store the JSON data
+    uploaded_at = models.DateTimeField(auto_now_add=True)
 class TimetableEntry(models.Model):
     teacher = models.CharField(max_length=100)
     room = models.CharField(max_length=50)
